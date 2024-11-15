@@ -1,15 +1,14 @@
 import csv
 import time
-import os
-
 import pandas as pd
-import numpy as nd
 
-from basketball_reference_web_scraper import client as scraper
-from basketball_reference_web_scraper.data import OutputType
-
-
-def create_game_data():
+from basketball_reference_web_scraper.basketball_reference_web_scraper import client as scraper
+from basketball_reference_web_scraper.basketball_reference_web_scraper.data import OutputType
+ 
+def get_game_data():
+    """
+    Get data for every game played in the last 3 seasons.
+    """
     for season in [2024]:
         scraper.season_schedule(season_end_year=season, output_type=OutputType.CSV, 
                                 output_file_path="data/{}_data.csv".format(season))
@@ -23,6 +22,9 @@ def create_game_data():
                 writer.writerow(row)
 
 def get_game_day_data():
+    """
+    Get every date on which an NBA game was played in the last 3 seasons.
+    """
     game_days = []
     games = pd.read_csv("data/game_data.csv")
     for i, row in games.iterrows():
@@ -35,34 +37,33 @@ def get_game_day_data():
     game_day_df = pd.DataFrame(game_days)
     game_day_df.to_csv("data/game_day_data.csv", index=False)
 
+def get_player_data():
+    """
+    Get the player data for each game day.
+    """
+    game_dates = []
+    file = "data/game_day_data.csv"
+    with open(file, 'r') as input_file:
+        reader = csv.reader(input_file)
+        for row in reader:
+            game_dates.append(row)
 
-get_game_day_data()
-
-
-
-
-def create_player_and_team_data():
     game_days = 1
 
-    years = [2022, 2023, 2024]
-    months = [10, 11, 12, 1, 2, 3, 4, 5, 6]
-    days = [i for i in range(1, 32)]
-
-    '''
-    for year in years:
-        for month in months:
-            for day in days:
-                while(1):
-                    try:
-                        scraper.player_box_scores(day=day, month=month, year=year,
-                                                output_type=OutputType.CSV,
-                                                output_file_path=f"data/player_data/day_{game_days}.csv")
-                        game_days += 1
-                        break
-                    except KeyError as e:
-                        break # No game on this day
-                    except Exception as e:
-                        time.sleep(300) # Hit rate limit, sleep
+    for game in game_dates:
+        while(1):
+            try:
+                print(f"Getting Game Data for {game[2]}-{game[1]}-{game[0]}")
+                scraper.player_box_scores(day=game[2], month=game[1], year=game[0],
+                                        output_type=OutputType.CSV,
+                                        output_file_path=f"data/player_data/day_{game_days}.csv")
+                game_days += 1
+                break
+            except KeyError as e:
+                break # No game on this day
+            except Exception as e:
+                print("Sleeping...")
+                time.sleep(300) # Hit rate limit, sleep
 
     output_file = open("data/player_stats.csv", 'w')
     writer = csv.writer(output_file)
@@ -71,77 +72,69 @@ def create_player_and_team_data():
             reader = csv.reader(input_file)
             for row in reader:
                 writer.writerow(row)
-    '''
-
-    # Now Create the team data
-
-    game_days = 1
-
-    for year in years:
-        for month in months:
-            for day in days:
-                while(1):
-                    try:
-                        scraper.team_box_scores(day=day, month=month, year=year,
-                                                output_type=OutputType.CSV,
-                                                output_file_path=f"data/team_data/day_{game_days}.csv")
-                        reader = csv.reader(f"data/team_data/day_{game_days}.csv")
-                        row_count = sum(1 for row in reader)
-                        if row_count == 1: 
-                            os.remove(f"data/team_data/day_{game_days}.csv")
-                        else:
-                            game_days += 1
-                        break
-                    except KeyError as e:
-                        break # No game on this day
-                    except Exception as e:
-                        print("Sleeping...")
-                        time.sleep(300) # Hit rate limit, sleep
-
-    output_file = open("data/team_stats.csv", 'w')
-    writer = csv.writer(output_file)
-    for file in [f"data/game_data/day_{i}.csv" for i in range(1, game_days+1)]:
-        with open(file, 'r') as input_file:
-            reader = csv.reader(input_file)
-            for row in reader:
-                writer.writerow(row)
-
-def calculate_drtg():
-    pass
 
 def calculate_ppg():
-    pass
+    """
+    Calculate the average ppg/5 for each training example
+    """
+    stats = pd.read_csv("data/sorted_stats.csv")
+    grouped_stats = stats.groupby('name')
+    grouped_dfs = {}
+    for group_name, group_df in grouped_stats:
+        grouped_dfs[group_name] = group_df
 
-# Features
-# 1: Player IDSs - (1 - n) players (integer)
-# 2: Player PPG Average over last 5 games (float)
-# 3: Game- Home or Away (1 for home, 0 for away) (integer)
-# 4: Opponent DRTG over last 5 games (float)
+    new_dfs = []
+    for g in grouped_dfs.values():
+        if g.shape[0] <= 5:
+            continue
+            # skip all players with 5 or fewer games played
 
-# Each game, we will get the top 16 players by minutes played
-# We get the DRTG and location for the game
-# We then look at each players average over the last 5 games leading up to the game,
-# which we have already calculated
-# We add in the players ID and we have a complete data point
-# the target value is the points scored by the player in the game
+        for i in range(5, g.shape[0]):
+            last_five = sum([g.iloc[j]['points'] for j in range(i-5, i)]) / 5
+            g.loc[g.index[i], 'ppg_over_last_five'] = last_five
 
-# Player ID, Game Date, Points Scored
-# ->
-# Player ID, Game Date, Points Average over last 5 games
+        g = g.drop(g.index[:5])
 
-# Team ID, Game Date, DRTG
-# ->
-# Team ID, Game Date, DRTG Average over last 5 games
+        new_dfs.append(g)
 
-# Get player/ Team data for each game
-# Team datapoints: 
-# Date
-# Team
-# Home/Away
-# Calculate DRTG
+    merged_df = pd.concat(new_dfs, axis=0, ignore_index=True)
+    merged_df.to_csv("data/final_player_stats.csv", index=False)
 
-# Player datapoints
-# Date
-# Team
-# Player ID
-# Points
+def numerical_representation():
+    """
+    Convert the categorical data (names, teams, home/away) 
+    into numerical representations
+    """
+    stats = pd.read_csv("data/final_player_stats.csv")
+    player_list = list(stats['name'].unique())
+    team_list = list(stats['team'].unique())
+
+    output_file = open("data/final_stats.csv", 'w')
+    writer = csv.writer(output_file)
+    with open('data/final_player_stats.csv', 'r') as input_file:
+        reader = csv.reader(input_file)
+
+        skip = True
+        for row in reader:
+            if skip: 
+                skip = False
+                continue
+
+            row[0] = player_list.index(row[0])+1
+            row[1] = team_list.index(row[1])+1
+            row[2] = 1 if row[2] == 'HOME' else 0
+            row.pop(4)
+            
+            writer.writerow(row)
+
+def shuffle_data():
+    """
+    Shuffle the data
+    """
+    data = pd.read_csv('data/final_stats.csv')
+    shuffled_data = data.sample(frac=1)
+    shuffled_data.to_csv('data/training_data.csv', index=False)
+        
+
+    
+
